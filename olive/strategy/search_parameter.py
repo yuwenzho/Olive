@@ -74,6 +74,11 @@ class Conditional(SearchParameter):
         support: Dict[Tuple[Any], SearchParameter],
         default: SearchParameter = None,
     ):
+        assert isinstance(parents, tuple), "parents must be a tuple"
+        for key in support:
+            assert isinstance(key, tuple), "support key must be a tuple"
+            assert len(key) == len(parents), "support key length must match the number of parents"
+
         self.parents = parents
         self.support = support
         self.default = default or Categorical([None])
@@ -138,6 +143,64 @@ class Conditional(SearchParameter):
         }
 
 
+class ConditionalDefault(Conditional):
+    """
+    Parameter with conditional default value
+    """
+
+    def __init__(self, parents: Tuple[str], support: Dict[Tuple[Any], Any], default: Any = None):
+        support = {key: Categorical([value]) for key, value in support.items()}
+        default = Categorical([default])
+        super().__init__(parents, support, default)
+
+    def get_support(self, parent_values: Dict[str, Any]) -> Union[bool, int, float, str]:
+        """
+        get the support for the search parameter for a given parent value
+        """
+        return super().get_support(parent_values)[0]
+
+    def condition(self, parent_values: Dict[str, Any]) -> Union[bool, int, float, str, "ConditionalDefault"]:
+        """
+        Fix the parent value and return a new search parameter
+        """
+        value = super().condition(parent_values)
+        if isinstance(value, Categorical):
+            return value.get_support()[0]
+        if isinstance(value, Conditional):
+            return self.conditional_to_conditional_default(value)
+
+    @staticmethod
+    def conditional_to_conditional_default(conditional: Conditional) -> "ConditionalDefault":
+        """
+        Convert a conditional to a conditional default
+        """
+        support = {}
+        for key, value in conditional.support.items():
+            assert isinstance(value, Categorical), "Conditional support must be categorical"
+            assert len(value.get_support()) == 1, "Conditional support must have only one value"
+            support[key] = value.get_support()[0]
+        assert isinstance(conditional.default, Categorical), "Conditional default must be categorical"
+        assert len(conditional.default.get_support()) == 1, "Conditional default must have only one value"
+        return ConditionalDefault(conditional.parents, support, conditional.default.get_support()[0])
+
+    @staticmethod
+    def conditional_default_to_conditional(conditional_default: "ConditionalDefault") -> Conditional:
+        """
+        Convert a conditional default to a conditional
+        """
+        return Conditional(conditional_default.parents, conditional_default.support, conditional_default.default)
+
+    def __repr__(self):
+        support = {key: value.get_support()[0] for key, value in self.support.items()}
+        default = self.default.get_support()[0]
+        return f"ConditionalDefault(parents: {self.parents}, support: {support}, default: {default})"
+
+    def to_json(self):
+        json_data = super().to_json()
+        json_data["type"] = "ConditionalDefault"
+        return json_data
+
+
 def json_to_search_parameter(json: Dict[str, Any]) -> SearchParameter:
     """
     Convert a json to a search parameter
@@ -146,12 +209,15 @@ def json_to_search_parameter(json: Dict[str, Any]) -> SearchParameter:
     search_parameter_type = json["type"]
     if search_parameter_type == "Categorical":
         return Categorical(json["support"])
-    if search_parameter_type == "Conditional":
+    if search_parameter_type == "Conditional" or search_parameter_type == "ConditionalDefault":
         stop_condition = lambda x: (  # noqa: E731
             isinstance(x, dict) and x.get("olive_parameter_type") == "SearchParameter"
         )
         support = flatten_dict(json["support"], stop_condition=stop_condition)
         for key, value in support.items():
             support[key] = json_to_search_parameter(value)
-        return Conditional(json["parents"], support, json_to_search_parameter(json["default"]))
+        conditional = Conditional(json["parents"], support, json_to_search_parameter(json["default"]))
+        if search_parameter_type == "ConditionalDefault":
+            return ConditionalDefault.conditional_to_conditional_default(conditional)
+        return conditional
     raise ValueError(f"Unknown search parameter type {search_parameter_type}")
