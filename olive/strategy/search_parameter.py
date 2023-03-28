@@ -3,6 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Any, Dict, List, Tuple, Union
 
 from olive.common.utils import flatten_dict, unflatten_dict
@@ -31,6 +32,15 @@ class SearchParameter(ABC):
     @abstractmethod
     def to_json(self):
         raise NotImplementedError()
+
+
+class SpecialParamValue(str, Enum):
+    """
+    Special values for parameters.
+    """
+
+    IGNORED = "OLIVE_IGNORED_PARAM_VALUE"
+    INVALID = "OLIVE_INVALID_PARAM_VALUE"
 
 
 class Categorical(SearchParameter):
@@ -81,7 +91,7 @@ class Conditional(SearchParameter):
 
         self.parents = parents
         self.support = support
-        self.default = default or Categorical([None])
+        self.default = default or self.get_invalid_choice()
 
     def get_support(self, parent_values: Dict[str, Any]) -> Union[List[str], List[int], List[float], List[bool]]:
         """
@@ -142,6 +152,20 @@ class Conditional(SearchParameter):
             "default": self.default.to_json(),
         }
 
+    @staticmethod
+    def get_invalid_choice():
+        """
+        Return a categorical search parameter with the invalid choice
+        """
+        return Categorical([SpecialParamValue.INVALID])
+
+    @staticmethod
+    def get_ignored_choice():
+        """
+        Return a categorical search parameter with the ignored choice
+        """
+        return Categorical([SpecialParamValue.IGNORED])
+
 
 class ConditionalDefault(Conditional):
     """
@@ -150,6 +174,7 @@ class ConditionalDefault(Conditional):
 
     def __init__(self, parents: Tuple[str], support: Dict[Tuple[Any], Any], default: Any = None):
         support = {key: Categorical([value]) for key, value in support.items()}
+        default = SpecialParamValue.INVALID if default is None else default
         default = Categorical([default])
         super().__init__(parents, support, default)
 
@@ -199,6 +224,20 @@ class ConditionalDefault(Conditional):
         json_data = super().to_json()
         json_data["type"] = "ConditionalDefault"
         return json_data
+
+    @staticmethod
+    def get_invalid_choice():
+        """
+        Return a categorical search parameter with the invalid choice
+        """
+        return SpecialParamValue.INVALID
+
+    @staticmethod
+    def get_ignored_choice():
+        """
+        Return a categorical search parameter with the ignored choice
+        """
+        return SpecialParamValue.IGNORED
 
 
 def json_to_search_parameter(json: Dict[str, Any]) -> SearchParameter:

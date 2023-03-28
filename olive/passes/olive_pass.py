@@ -19,7 +19,14 @@ from olive.passes.pass_config import (
     create_config_class,
     get_user_script_config,
 )
-from olive.strategy.search_parameter import Categorical, Conditional, ConditionalDefault, SearchParameter
+from olive.strategy.search_parameter import (
+    Categorical,
+    Conditional,
+    ConditionalDefault,
+    SearchParameter,
+    SpecialParamValue,
+)
+from olive.strategy.search_space import SearchSpace
 from olive.strategy.utils import cyclic_search_space, order_search_parameters
 
 
@@ -130,6 +137,11 @@ class Pass(AutoConfigClass):
                 # resolve conditional parameters
                 # if categorical with single choice, use that choice directly
                 value = self._resolve_search_parameters(value, fixed_params)
+            if value == SpecialParamValue.INVALID:
+                # TODO: better error message, e.g. what the parent values were, how it was invalid
+                raise ValueError(
+                    f"Invalid value for parameter '{key}'. Either the parameter or its parents are not fixed."
+                )
             if isinstance(value, SearchParameter):
                 search_space[key] = value
             else:
@@ -137,6 +149,8 @@ class Pass(AutoConfigClass):
                     value = str(Path(value).resolve())
                 fixed_params[key] = value
         assert not cyclic_search_space(search_space), "Search space is cyclic."
+        # TODO: better error message, e.g. which parameters are invalid, how they are invalid
+        assert SearchSpace({"search_space": search_space}).size() > 0, "There are no valid points in the search space."
 
         return fixed_params, search_space
 
@@ -184,6 +198,12 @@ class Pass(AutoConfigClass):
         Validate the search point for the pass.
         """
         return True
+
+    def filter_ignored_params(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Filter out ignored parameters.
+        """
+        return {key: value for key, value in config.items() if value != SpecialParamValue.IGNORED}
 
     @abstractmethod
     def _run_for_config(self, model: OliveModel, config: Dict[str, Any], output_model_path: str) -> OliveModel:
