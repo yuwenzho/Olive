@@ -172,9 +172,8 @@ class ConditionalDefault(Conditional):
     Parameter with conditional default value
     """
 
-    def __init__(self, parents: Tuple[str], support: Dict[Tuple[Any], Any], default: Any = None):
+    def __init__(self, parents: Tuple[str], support: Dict[Tuple[Any], Any], default: Any = SpecialParamValue.INVALID):
         support = {key: Categorical([value]) for key, value in support.items()}
-        default = SpecialParamValue.INVALID if default is None else default
         default = Categorical([default])
         super().__init__(parents, support, default)
 
