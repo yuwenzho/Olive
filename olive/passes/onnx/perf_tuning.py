@@ -16,6 +16,7 @@ from olive.evaluator.metric import LatencySubType, Metric, MetricType
 from olive.model import ONNXModel
 from olive.passes import Pass
 from olive.passes.pass_config import PassConfigParam
+from olive.strategy.search_parameter import Categorical, ConditionalDefault
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +215,7 @@ class OrtPerfTuning(Pass):
     @staticmethod
     def _default_config() -> Dict[str, Dict[str, Any]]:
         return {
+            "ep": PassConfigParam(type_=str, default="cpu", description="Execution provider for tuning."),
             "data_dir": PassConfigParam(
                 type_=Union[Path, str], is_path=True, description="Directory of sample inference data."
             ),
@@ -228,7 +230,8 @@ class OrtPerfTuning(Pass):
             "cpu_cores": PassConfigParam(type_=int, default=None, description="CPU cores used for thread tuning."),
             "io_bind": PassConfigParam(
                 type_=Union[bool, List[bool]],
-                default=False,
+                default=ConditionalDefault(parents=("ep",), support={("dml",): [True, False]}, default=False),
+                default_search=Categorical([[True, False]]),
                 description="Whether enable IOBingding for ONNX Runimte infernece.",
             ),
             "providers_list": PassConfigParam(
@@ -251,7 +254,9 @@ class OrtPerfTuning(Pass):
             ),
             "extra_session_config": PassConfigParam(
                 type_=Dict[str, Any],
-                default=None,
+                default=ConditionalDefault(
+                    parents=("ep",), support={("dml",): {"enable_mem_pattern": False}}, default=None
+                ),
                 description="Extra customized session options during tuning process.",
             ),
         }

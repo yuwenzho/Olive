@@ -9,6 +9,7 @@ from typing import Any, Dict
 from olive.model import ONNXModel
 from olive.passes import Pass
 from olive.passes.pass_config import PassConfigParam
+from olive.strategy.search_parameter import Boolean, ConditionalDefault
 
 
 class OrtTransformersOptimization(Pass):
@@ -19,6 +20,7 @@ class OrtTransformersOptimization(Pass):
     def _default_config() -> Dict[str, Dict[str, Any]]:
         # TODO: add default search if supported
         return {
+            "ep": PassConfigParam(type_=str, default="cpu", description="Execution provider."),
             "model_type": PassConfigParam(
                 type_=str,
                 required=True,
@@ -48,7 +50,10 @@ class OrtTransformersOptimization(Pass):
                 description="Whether only use onnxruntime to optimize model, and no python fusion.",
             ),
             "float16": PassConfigParam(
-                type_=bool, default=False, description="Whether half-precision float will be used."
+                type_=bool,
+                default=ConditionalDefault(parents=("ep",), support={("dml",): True}, default=False),
+                default_search=Boolean(),
+                description="Whether half-precision float will be used.",
             ),
             "input_int32": PassConfigParam(
                 type_=bool, default=False, description="Whether int32 tensors will be used as input."
@@ -64,6 +69,8 @@ class OrtTransformersOptimization(Pass):
         # start with a copy of the config
         run_config = deepcopy(config)
         del run_config["float16"], run_config["input_int32"], run_config["use_external_data_format"]
+        if run_config["model_type"] == "generic":
+            run_config["model_type"] = "bert"
 
         optimizer = transformers_optimizer.optimize_model(input=model.model_path, **run_config)
         if config["float16"]:

@@ -113,7 +113,10 @@ class OnnxConversion(Pass):
 
     def _run_for_config(self, model: PyTorchModel, config: Dict[str, Any], output_model_path: str) -> ONNXModel:
         pytorch_model = model.load_model()
-        pytorch_model.eval()
+        # When metric goals are set, baseline computation takes place before this method is called, during which
+        # the model is loaded onto the target device making the above `load()` and below `eval()` no-ops.
+        # This method, however, uses CPU bound inputs, so we need make sure the model weights are CPU resident.
+        pytorch_model.eval().to("cpu")
         if isinstance(pytorch_model, torch.jit.RecursiveScriptModule):
             pytorch_model = TraceModelWrapper(pytorch_model)
 

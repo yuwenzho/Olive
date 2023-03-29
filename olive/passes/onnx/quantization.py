@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # common config for both static and dynamic quantization
 _onnx_quantization_config = {
+    "ep": PassConfigParam(type_=str, default="cpu", description="Execution provider."),
     "weight_type": PassConfigParam(
         type_=str,
         default="QInt8",
@@ -34,7 +35,12 @@ _onnx_quantization_config = {
     ),
     "op_types_to_quantize": PassConfigParam(
         type_=list,
-        default=None,
+        default=ConditionalDefault(parents=("ep",), support={("dml",): ["Add", "Conv", "MatMul"]}, default=None),
+        default_search=Conditional(
+            parents=("ep",),
+            support={("dml",): Categorical([["Add", "Conv", "MatMul"]])},
+            default=Categorical([None, ["Add", "Conv", "MatMul"]]),
+        ),
         description="""
             List of operator types to quantize. If None, all quantizable.
         """,
@@ -312,7 +318,7 @@ class OnnxQuantization(Pass):
         try:
             quant_pre_process(input_model_path=model.model_path, output_model_path=output_model_path, auto_merge=True)
         except Exception as e:
-            logger.warning(f"failed to run quantization preprocessing with error of {e}")
+            logger.warning(f"Failed to run quantization preprocessing for '{model.model_path}' with error '{e}'")
             copyfile(model.model_path, output_model_path)
 
         return ONNXModel(output_model_path)
