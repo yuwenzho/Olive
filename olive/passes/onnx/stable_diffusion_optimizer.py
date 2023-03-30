@@ -25,6 +25,7 @@ class OnnxStableDiffusionOptimization(Pass):
                 required=True,
                 description=("One of unet, vae, clip, safety_checker."),
             ),
+            # TODO: make this a search param (some HW may not run faster with fp16)
             "float16": PassConfigParam(
                 type_=bool, default=False, description="Whether half-precision float will be used."
             ),
@@ -42,6 +43,10 @@ class OnnxStableDiffusionOptimization(Pass):
 
         if version.parse(ort.__version__) < version.parse("1.15.0"):
             raise RuntimeError("This pass requires onnxruntime 1.15.0 or newer")
+
+        # TODO: implement. This is a passthrough right now
+        import shutil
+        shutil.copyfile(str(model.model_path), output_model_path)
 
         # from onnxruntime.transformers import optimizer as transformers_optimizer
 

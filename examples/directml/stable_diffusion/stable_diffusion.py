@@ -6,14 +6,15 @@ import argparse
 import warnings
 
 import onnxruntime as ort
-from resnet_utils import get_directories
+from sd_directories import get_directories
 
 from olive.engine import Engine
 from olive.evaluator.metric import AccuracySubType, LatencySubType, Metric, MetricType
 from olive.evaluator.olive_evaluator import OliveEvaluator
-from olive.model import PyTorchModel
-from olive.passes import OnnxConversion, OrtPerfTuning, QuantizationAwareTraining
+from olive.model import ONNXModel
+from olive.passes import OnnxStableDiffusionOptimization, OrtPerfTuning
 from olive.systems.local import LocalSystem
+from pathlib import Path
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
@@ -21,13 +22,11 @@ ort.set_default_logger_severity(3)
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description="Olive vnext bert qat example")
-    parser.add_argument("--gpu", action="store_true", help="Run evaluation on GPU")
+    parser = argparse.ArgumentParser(description="Olive stable diffusion example")
     parser.add_argument(
-        "--optimize_metric",
+        "--models_path",
         type=str,
-        choices=["accuracy", "latency"],
-        default="accuracy",
+        default=str(),
         help="Metric to optimize for: accuracy or latency",
     )
     parser.add_argument(
@@ -48,9 +47,7 @@ def get_args():
     return args
 
 
-def main():
-    args = get_args()
-
+def optimize_sd_model(unoptimized_model_path: Path):
     # directories
     current_dir, models_dir, _, cache_dir = get_directories()
     user_script = str(current_dir / "user_script.py")
@@ -58,19 +55,6 @@ def main():
 
     # ------------------------------------------------------------------
     # Evaluator
-    accuracy_metric_config = {
-        "user_script": user_script,
-        "post_processing_func": "post_process",
-        "dataloader_func": "create_benchmark_dataloader",
-        "batch_size": 1,
-    }
-    accuracy_metric = Metric(
-        name="accuracy",
-        type=MetricType.ACCURACY,
-        sub_type=AccuracySubType.ACCURACY_SCORE,
-        user_config=accuracy_metric_config,
-    )
-
     latency_metric_config = {
         "user_script": user_script,
         "dataloader_func": "create_benchmark_dataloader",
@@ -83,8 +67,7 @@ def main():
         higher_is_better=False,
         user_config=latency_metric_config,
     )
-    metrics = [accuracy_metric, latency_metric]
-    evaluator = OliveEvaluator(metrics=metrics, target=LocalSystem())
+    evaluator = OliveEvaluator(metrics=[latency_metric], target=LocalSystem())
 
     # ------------------------------------------------------------------
     # Engine
@@ -98,33 +81,14 @@ def main():
     engine = Engine(options, evaluator=evaluator)
 
     # ------------------------------------------------------------------
-    # Quantization Aware Training pass
-    print("PyTorch Quantization Aware Training...")
-    qat_config = {
-        "user_script": user_script,
-        "input_shapes": [[1, 3, 32, 32]],
-        "num_epochs": 10,
-        "modules_to_fuse": [["conv1", "bn1"], ["conv2", "bn2"], ["conv3", "bn3"]],
-        "ptl_data_module": "PTLDataModule",
-        "ptl_module": "PTLModule",
-        "qconfig_func": "create_qat_config",
-        "seed": 42,
+    # Stable Diffusion optimization pass
+    sd_config = {
+        "model_type": "unet",
+        "float16": True,
+        # "use_external_data_format": True,
     }
-    qat_pass = QuantizationAwareTraining(qat_config, disable_search=True)
-    engine.register(qat_pass)
-
-    # ------------------------------------------------------------------
-    # Onnx conversion pass
-    # config can be a dictionary
-    onnx_conversion_config = {
-        "input_names": ["input"],
-        "input_shapes": [[1, 3, 32, 32]],
-        "output_names": ["output"],
-        "dynamic_axes": {"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-        "target_opset": 17,
-    }
-    onnx_conversion_pass = OnnxConversion(onnx_conversion_config, disable_search=True)
-    engine.register(onnx_conversion_pass)
+    sd_pass = OnnxStableDiffusionOptimization(sd_config, disable_search=True)
+    engine.register(sd_pass)
 
     # ------------------------------------------------------------------
     # ONNX Runtime performance tuning pass
@@ -138,16 +102,18 @@ def main():
 
     # ------------------------------------------------------------------
     # Input model
-    pytorch_model_file = str(models_dir / f"{name}.pt")
-    pytorch_model = PyTorchModel(pytorch_model_file, is_file=True)
+    input_model = ONNXModel(str(unoptimized_model_path), is_file=True)
 
     # ------------------------------------------------------------------
     # Run engine
-    best_execution = engine.run(pytorch_model, verbose=True)
+    best_execution = engine.run(input_model, verbose=True)
     print(best_execution)
 
     return best_execution["metric"]
 
 
 if __name__ == "__main__":
-    main()
+    args = get_args()
+
+    # TODO: loop over all models
+    optimize_sd_model(Path(args.models_path) / "unet" / "model.onnx")
