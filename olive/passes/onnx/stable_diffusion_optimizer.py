@@ -6,13 +6,15 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict
 
+from packaging import version
+
 from olive.model import ONNXModel
 from olive.passes import Pass
 from olive.passes.pass_config import PassConfigParam
 
 
 class OnnxStableDiffusionOptimization(Pass):
-    """Optimize transformer based models in scenarios where ONNX Runtime does not apply the optimization at load time.
+    """Optimize stable diffusion models in scenarios where ONNX Runtime does not apply the optimization at load time.
     It is based on onnxruntime.transformers.optimizer."""
 
     @staticmethod
@@ -21,59 +23,52 @@ class OnnxStableDiffusionOptimization(Pass):
             "model_type": PassConfigParam(
                 type_=str,
                 required=True,
-                description=(
-                    "Transformer based model type, includig bert (exported by PyTorch), gpt2 (exported by PyTorch), "
-                    "bert_tf (BERT exported by tf2onnx), bert_keras (BERT exported by keras2onnx)."
-                ),
-            ),
-            "num_heads": PassConfigParam(type_=int, default=0, description="Number of attention heads."),
-            "hidden_size": PassConfigParam(type_=int, default=0, description="Number of hidden nodes."),
-            # TODO: Figure out what the expected type is
-            "optimization_options": PassConfigParam(
-                type_=Any, default=None, description="Optimization options that turn on/off some fusions."
-            ),
-            "opt_level": PassConfigParam(
-                type_=Any,
-                default=None,
-                description=(
-                    "Graph optimization level of Onnx Runtime: "
-                    "0 - disable all (default), 1 - basic, 2 - extended, 99 - all."
-                ),
-            ),
-            "use_gpu": PassConfigParam(type_=bool, default=False, description="Flag for GPU inference."),
-            "only_onnxruntime": PassConfigParam(
-                type_=bool,
-                default=False,
-                description="Whether only use onnxruntime to optimize model, and no python fusion.",
+                description=("One of unet, vae, clip, safety_checker."),
             ),
             "float16": PassConfigParam(
                 type_=bool, default=False, description="Whether half-precision float will be used."
             ),
-            "input_int32": PassConfigParam(
-                type_=bool, default=False, description="Whether int32 tensors will be used as input."
-            ),
+            # TODO
+            # "force_fp32_ops": PassConfigParam(
+            #     type_=list[str], default=[], description="Operators that are forced to run in float32"
+            # ),
             "use_external_data_format": PassConfigParam(
                 type_=bool, default=False, description="Whether use external data format to store large model (>2GB)"
             ),
         }
 
     def _run_for_config(self, model: ONNXModel, config: Dict[str, Any], output_model_path: str) -> ONNXModel:
-        from onnxruntime.transformers import optimizer as transformers_optimizer
+        import onnxruntime as ort
 
-        # start with a copy of the config
-        run_config = deepcopy(config)
-        del run_config["float16"], run_config["input_int32"], run_config["use_external_data_format"]
+        if version.parse(ort.__version__) < version.parse("1.15.0"):
+            raise RuntimeError("This pass requires onnxruntime 1.15.0 or newer")
 
-        optimizer = transformers_optimizer.optimize_model(input=model.model_path, **run_config)
-        if config["float16"]:
-            optimizer.convert_float_to_float16(keep_io_types=True)
-        if config["input_int32"]:
-            optimizer.change_graph_inputs_to_int32()
+        # from onnxruntime.transformers import optimizer as transformers_optimizer
 
-        # add onnx extension if not present
-        if Path(output_model_path).suffix != ".onnx":
-            output_model_path += ".onnx"
+        # from onnxruntime.transformers.fusion_options import FusionOptions
+        # from onnxruntime.transformers.onnx_model_clip import ClipOnnxModel
 
-        optimizer.save_model_to_file(output_model_path, config["use_external_data_format"])
+        # sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+        # from fusion_options import FusionOptions  # noqa: E402
+        # from onnx_model_clip import ClipOnnxModel  # noqa: E402
+        # from onnx_model_unet import UnetOnnxModel  # noqa: E402
+        # from onnx_model_vae import VaeOnnxModel  # noqa: E402
+        # from optimizer import optimize_by_onnxruntime, optimize_model  # noqa: E402
+
+        # # start with a copy of the config
+        # run_config = deepcopy(config)
+        # del run_config["float16"], run_config["input_int32"], run_config["use_external_data_format"]
+
+        # optimizer = transformers_optimizer.optimize_model(input=model.model_path, **run_config)
+        # if config["float16"]:
+        #     optimizer.convert_float_to_float16(keep_io_types=True)
+        # if config["input_int32"]:
+        #     optimizer.change_graph_inputs_to_int32()
+
+        # # add onnx extension if not present
+        # if Path(output_model_path).suffix != ".onnx":
+        #     output_model_path += ".onnx"
+
+        # optimizer.save_model_to_file(output_model_path, config["use_external_data_format"])
 
         return ONNXModel(output_model_path, model.name)
