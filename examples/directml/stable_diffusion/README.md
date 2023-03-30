@@ -9,5 +9,8 @@ huggingface-cli.exe login
 ```
 
 ```
-python download_and_convert_models.py
+python prepare_models.py
 ```
+
+# TODO:
+- Consider supporting torch 2.0.0 with custom op https://github.com/pytorch/pytorch/issues/97262
