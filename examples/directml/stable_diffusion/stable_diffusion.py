@@ -50,6 +50,7 @@ def optimize_sd_model(unoptimized_model_path: Path, model_type: str):
             "execution_order": "pass-by-pass",
             "search_algorithm": "exhaustive",
         },
+        "clean_cache": True,  # TODO: remove
     }
     engine = Engine(options, evaluator=evaluator)
 
