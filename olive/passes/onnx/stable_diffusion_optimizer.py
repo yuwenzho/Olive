@@ -48,7 +48,14 @@ class OnnxStableDiffusionOptimization(Pass):
         fusion_options = FusionOptions(config.model_type)
         # TODO: equivalent of fusion_options.parse(args) to add additional options from config
 
+        # TODO: if true, likely need to manually save onnx model to ensure external data 
+        # locations don't conflict in the olive cache
+        use_external_data_format = False
+
         if config.model_type == "unet":
+            # FP32 unet is too large to save into a single protobuf
+            use_external_data_format = not config.float16
+
             # Some optimizations are not available in v1.14 or older version: packed QKV and BiasAdd
             has_all_optimizations = version.parse(ort.__version__) >= version.parse("1.15.0")
             fusion_options.enable_packed_kv = config.float16
@@ -69,6 +76,6 @@ class OnnxStableDiffusionOptimization(Pass):
             op_block_list = ['RandomNormalLike'] + config.force_fp32_ops
             m.convert_float_to_float16(keep_io_types=False, op_block_list=op_block_list)
 
-        m.save_model_to_file(str(output_model_path), use_external_data_format=False)
+        m.save_model_to_file(str(output_model_path), use_external_data_format=use_external_data_format)
 
         return ONNXModel(output_model_path, model.name)
