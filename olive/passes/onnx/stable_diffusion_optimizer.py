@@ -12,6 +12,18 @@ from olive.model import ONNXModel
 from olive.passes import Pass
 from olive.passes.pass_config import PassConfigParam
 
+import onnx
+
+
+def save_onnx_model_with_external_data(input_path, output_path):
+    from onnx.external_data_helper import convert_model_to_external_data
+
+    output_filename = Path(output_path).name
+
+    model = onnx.load(input_path, load_external_data=True)
+    convert_model_to_external_data(model, all_tensors_to_one_file=True, location=f"{output_filename}.data", size_threshold=1024, convert_attribute=False)
+    onnx.save_model(model, output_path)
+
 
 class OnnxStableDiffusionOptimization(Pass):
     """Optimize stable diffusion models in scenarios where ONNX Runtime does not apply the optimization at load time.
@@ -44,11 +56,11 @@ class OnnxStableDiffusionOptimization(Pass):
         # if version.parse(ort.__version__) < version.parse("1.15.0"):
             # raise RuntimeError("This pass requires onnxruntime 1.15.0 or newer")
 
-        # TODO: implement. This is a passthrough right now
-        import shutil
-        shutil.copyfile(str(model.model_path), output_model_path)
+        if Path(output_model_path).suffix != ".onnx":
+            output_model_path += ".onnx"
 
-        # TODO: hardcode weights to original copy?
+        # TODO: implement. This is a passthrough right now
+        save_onnx_model_with_external_data(str(model.model_path), output_model_path)
 
         # from onnxruntime.transformers import optimizer as transformers_optimizer
 
