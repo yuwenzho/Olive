@@ -9,9 +9,9 @@ from packaging import version
 from olive.model import ONNXModel
 from olive.passes import Pass
 from olive.passes.pass_config import PassConfigParam
-from onnxruntime.transformers.fusion_options import FusionOptions  # noqa: E402
+from onnxruntime.transformers.fusion_options import FusionOptions
 import onnxruntime as ort
-from onnxruntime.transformers.optimizer import optimize_model  # noqa: E402
+from onnxruntime.transformers.optimizer import optimize_model
 
 
 class OnnxStableDiffusionOptimization(Pass):
@@ -38,7 +38,6 @@ class OnnxStableDiffusionOptimization(Pass):
             ),
         }
 
-
     def _run_for_config(self, model: ONNXModel, config: Dict[str, Any], output_model_path: str) -> ONNXModel:
         if Path(output_model_path).suffix != ".onnx":
             output_model_path += ".onnx"
@@ -48,7 +47,7 @@ class OnnxStableDiffusionOptimization(Pass):
         fusion_options = FusionOptions(config.model_type)
         # TODO: equivalent of fusion_options.parse(args) to add additional options from config
 
-        # TODO: if true, likely need to manually save onnx model to ensure external data 
+        # TODO: if true, likely need to manually save onnx model to ensure external data
         # locations don't conflict in the olive cache
         use_external_data_format = False
 
@@ -73,7 +72,7 @@ class OnnxStableDiffusionOptimization(Pass):
         )
 
         if config.float16:
-            op_block_list = ['RandomNormalLike'] + config.force_fp32_ops
+            op_block_list = ["RandomNormalLike"] + config.force_fp32_ops
             m.convert_float_to_float16(keep_io_types=False, op_block_list=op_block_list)
 
         m.save_model_to_file(str(output_model_path), use_external_data_format=use_external_data_format)
