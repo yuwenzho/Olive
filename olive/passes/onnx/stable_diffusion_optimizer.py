@@ -12,10 +12,9 @@ from olive.model import ONNXModel
 from olive.passes import Pass
 from olive.passes.pass_config import PassConfigParam
 
-import onnx
-
 
 def save_onnx_model_with_external_data(input_path, output_path):
+    import onnx
     from onnx.external_data_helper import convert_model_to_external_data
 
     output_filename = Path(output_path).name
@@ -50,44 +49,53 @@ class OnnxStableDiffusionOptimization(Pass):
             ),
         }
 
+
     def _run_for_config(self, model: ONNXModel, config: Dict[str, Any], output_model_path: str) -> ONNXModel:
-        import onnxruntime as ort
-
-        # if version.parse(ort.__version__) < version.parse("1.15.0"):
-            # raise RuntimeError("This pass requires onnxruntime 1.15.0 or newer")
-
         if Path(output_model_path).suffix != ".onnx":
             output_model_path += ".onnx"
 
+        from onnxruntime.transformers.fusion_options import FusionOptions  # noqa: E402
+        import onnxruntime as ort
+        from onnxruntime.transformers.optimizer import optimize_model  # noqa: E402
+
+        config = self._config_class(**config)
+        float16 = config["float16"]
+        model_type = config["model_type"]
+
+        fusion_options = FusionOptions.parse(model_type)
+        # TODO: equivalent of fusion_options.parse(args) to add additional options from config
+
+        if config["model_type"] == "unet":
+            # Some optimizations are not available in v1.14 or older version: packed QKV and BiasAdd
+            has_all_optimizations = version.parse(ort.__version__) >= version.parse("1.15.0")
+            fusion_options.enable_packed_kv = float16
+            fusion_options.enable_packed_qkv = float16 and has_all_optimizations
+            fusion_options.enable_bias_add = has_all_optimizations
+        else:
+            raise NotImplementedError()
+
+        m = optimize_model(
+            str(model.model_path),
+            model_type=model_type,
+            num_heads=0,  # will be deduced from graph
+            hidden_size=0,  # will be deduced from graph
+            opt_level=0,  # TODO
+            optimization_options=fusion_options,
+            use_gpu=True,  # TODO if "cuda" or "dml" EP
+        )
+
+        if float16:
+            op_block_list = ["RandomNormalLike"]
+            m.convert_float_to_float16(
+                keep_io_types=False,
+                op_block_list=op_block_list + force_fp32_operators[name],
+            )
+
+        m.get_operator_statistics()
+        m.get_fused_operator_statistics()
+        m.save_model_to_file(str(output_model_path), use_external_data_format=False)
+
         # TODO: implement. This is a passthrough right now
-        save_onnx_model_with_external_data(str(model.model_path), output_model_path)
-
-        # from onnxruntime.transformers import optimizer as transformers_optimizer
-
-        # from onnxruntime.transformers.fusion_options import FusionOptions
-        # from onnxruntime.transformers.onnx_model_clip import ClipOnnxModel
-
-        # sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-        # from fusion_options import FusionOptions  # noqa: E402
-        # from onnx_model_clip import ClipOnnxModel  # noqa: E402
-        # from onnx_model_unet import UnetOnnxModel  # noqa: E402
-        # from onnx_model_vae import VaeOnnxModel  # noqa: E402
-        # from optimizer import optimize_by_onnxruntime, optimize_model  # noqa: E402
-
-        # # start with a copy of the config
-        # run_config = deepcopy(config)
-        # del run_config["float16"], run_config["input_int32"], run_config["use_external_data_format"]
-
-        # optimizer = transformers_optimizer.optimize_model(input=model.model_path, **run_config)
-        # if config["float16"]:
-        #     optimizer.convert_float_to_float16(keep_io_types=True)
-        # if config["input_int32"]:
-        #     optimizer.change_graph_inputs_to_int32()
-
-        # # add onnx extension if not present
-        # if Path(output_model_path).suffix != ".onnx":
-        #     output_model_path += ".onnx"
-
-        # optimizer.save_model_to_file(output_model_path, config["use_external_data_format"])
+        # save_onnx_model_with_external_data(str(model.model_path), output_model_path)
 
         return ONNXModel(output_model_path, model.name)
