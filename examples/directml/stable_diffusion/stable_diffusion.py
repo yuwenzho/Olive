@@ -9,7 +9,7 @@ import onnxruntime as ort
 from sd_directories import get_directories
 
 from olive.engine import Engine
-from olive.evaluator.metric import AccuracySubType, LatencySubType, Metric, MetricType
+from olive.evaluator.metric import LatencySubType, Metric, MetricType
 from olive.evaluator.olive_evaluator import OliveEvaluator
 from olive.model import ONNXModel
 from olive.passes import OnnxStableDiffusionOptimization, OrtPerfTuning
@@ -21,43 +21,16 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 ort.set_default_logger_severity(3)
 
 
-def get_args():
-    parser = argparse.ArgumentParser(description="Olive stable diffusion example")
-    parser.add_argument(
-        "--models_path",
-        type=str,
-        default=str(),
-        help="Metric to optimize for: accuracy or latency",
-    )
-    parser.add_argument(
-        "--search_algorithm",
-        type=str,
-        choices=["exhaustive", "random", "tpe"],
-        default="exhaustive",
-        help="Search algorithm: exhaustive or random",
-    )
-    parser.add_argument(
-        "--execution_order",
-        type=str,
-        choices=["joint", "pass-by-pass"],
-        default="pass-by-pass",
-        help="Execution order: joint or pass-by-pass",
-    )
-    args = parser.parse_args()
-    return args
-
-
-def optimize_sd_model(unoptimized_model_path: Path):
+def optimize_sd_model(unoptimized_model_path: Path, model_type: str):
     # directories
-    current_dir, models_dir, _, cache_dir = get_directories()
+    current_dir, _, _, cache_dir = get_directories()
     user_script = str(current_dir / "user_script.py")
-    name = "resnet_trained_for_cifar10"
 
     # ------------------------------------------------------------------
     # Evaluator
     latency_metric_config = {
         "user_script": user_script,
-        "dataloader_func": "create_benchmark_dataloader",
+        "dataloader_func": f"create_{model_type}_dataloader",
         "batch_size": 1,
     }
     latency_metric = Metric(
@@ -74,8 +47,8 @@ def optimize_sd_model(unoptimized_model_path: Path):
     options = {
         "cache_dir": str(cache_dir),
         "search_strategy": {
-            "execution_order": args.execution_order,
-            "search_algorithm": args.search_algorithm,
+            "execution_order": "pass-by-pass",
+            "search_algorithm": "exhaustive",
         },
     }
     engine = Engine(options, evaluator=evaluator)
@@ -83,22 +56,25 @@ def optimize_sd_model(unoptimized_model_path: Path):
     # ------------------------------------------------------------------
     # Stable Diffusion optimization pass
     sd_config = {
-        "model_type": "unet",
+        "model_type": model_type,
         "float16": True,
         # "use_external_data_format": True,
     }
     sd_pass = OnnxStableDiffusionOptimization(sd_config, disable_search=True)
     engine.register(sd_pass)
 
+    # TODO: offline optimization of graph level
     # ------------------------------------------------------------------
     # ONNX Runtime performance tuning pass
-    ort_perf_tuning_config = {
-        "user_script": user_script,
-        "dataloader_func": "create_benchmark_dataloader",
-        "batch_size": 1,
-    }
-    ort_perf_tuning_pass = OrtPerfTuning(ort_perf_tuning_config)
-    engine.register(ort_perf_tuning_pass)
+    # ort_perf_tuning_config = {
+    #     "user_script": user_script,
+    #     "dataloader_func": "create_benchmark_dataloader",
+    #     "batch_size": 1,
+    # }
+    # ort_perf_tuning_pass = OrtPerfTuning(ort_perf_tuning_config)
+    # engine.register(ort_perf_tuning_pass)
+
+    # TODO: fix free dimensions
 
     # ------------------------------------------------------------------
     # Input model
@@ -113,7 +89,18 @@ def optimize_sd_model(unoptimized_model_path: Path):
 
 
 if __name__ == "__main__":
-    args = get_args()
+    current_dir, models_dir, _, cache_dir = get_directories()
+
+    parser = argparse.ArgumentParser(description="Olive stable diffusion example")
+    parser.add_argument(
+        "--models_path",
+        type=str,
+        default="sd-unoptimized",
+        help="Metric to optimize for: accuracy or latency",
+    )
+    args = parser.parse_args()
+
+
 
     # TODO: loop over all models
-    optimize_sd_model(Path(args.models_path) / "unet" / "model.onnx")
+    optimize_sd_model(unoptimized_model_path=Path(models_dir) / args.models_path / "unet" / "model.onnx", model_type="unet")

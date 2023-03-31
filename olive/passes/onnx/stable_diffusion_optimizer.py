@@ -41,12 +41,14 @@ class OnnxStableDiffusionOptimization(Pass):
     def _run_for_config(self, model: ONNXModel, config: Dict[str, Any], output_model_path: str) -> ONNXModel:
         import onnxruntime as ort
 
-        if version.parse(ort.__version__) < version.parse("1.15.0"):
-            raise RuntimeError("This pass requires onnxruntime 1.15.0 or newer")
+        # if version.parse(ort.__version__) < version.parse("1.15.0"):
+            # raise RuntimeError("This pass requires onnxruntime 1.15.0 or newer")
 
         # TODO: implement. This is a passthrough right now
         import shutil
         shutil.copyfile(str(model.model_path), output_model_path)
+
+        # TODO: hardcode weights to original copy?
 
         # from onnxruntime.transformers import optimizer as transformers_optimizer
 
