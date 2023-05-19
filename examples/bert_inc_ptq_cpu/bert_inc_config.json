@@ -22,14 +22,11 @@
             "metrics":[
                 {
                     "name": "accuracy",
-                    "type": "accuracy",
-                    "sub_type": "accuracy_score",
+                    "type": "custom",
                     "priority_rank": 1,
                     "user_config":{
-                        "post_processing_func": "post_process",
                         "user_script": "user_script.py",
-                        "dataloader_func": "create_dataloader",
-                        "batch_size": 1
+                        "evaluate_func": "eval_accuracy"
                     }
                 },
                 {
@@ -63,7 +60,11 @@
             "config": {
                 "approach": "SEARCHABLE_VALUES",
                 "user_script": "user_script.py",
-                "dataloader_func": "inc_glue_calibration_reader"
+                "dataloader_func": "inc_glue_calibration_reader",
+                "evaluate_func": "eval_accuracy",
+                "tuning_criterion": {
+                    "max_trials": 15
+                }
             }
         }
     },

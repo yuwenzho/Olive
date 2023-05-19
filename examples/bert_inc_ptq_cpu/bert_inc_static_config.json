@@ -4,7 +4,6 @@
         "type": "PyTorchModel",
         "config": {
             "model_path": null,
-            "is_file": false,
             "model_loader": "load_pytorch_origin_model",
             "model_script": "user_script.py",
             "io_config": {
@@ -23,14 +22,11 @@
             "metrics":[
                 {
                     "name": "accuracy",
-                    "type": "accuracy",
-                    "sub_type": "accuracy_score",
+                    "type": "custom",
                     "priority_rank": 1,
                     "user_config":{
-                        "post_processing_func": "post_process",
                         "user_script": "user_script.py",
-                        "dataloader_func": "create_dataloader",
-                        "batch_size": 1
+                        "evaluate_func": "eval_accuracy"
                     }
                 },
                 {
@@ -60,11 +56,12 @@
         },
         "quantization": {
             "type": "IncStaticQuantization",
+            "disable_search": true,
             "config": {
                 "quant_format": "QOperator",
-                "calibration_sampling_size": [10],
                 "user_script": "user_script.py",
-                "dataloader_func": "inc_glue_calibration_reader"
+                "dataloader_func": "inc_glue_calibration_reader",
+                "evaluate_func": "eval_accuracy"
             }
         }
     },

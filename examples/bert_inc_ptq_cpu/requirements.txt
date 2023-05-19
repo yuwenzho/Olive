@@ -4,4 +4,5 @@ datasets
 # TODO: remove this once invalid graph issue resolve
 onnxruntime==1.13.1
 transformers
-neural-compressor
+# TODO: remove limited version once INC smoothquant issue resolve
+git+https://github.com/intel/neural-compressor.git@53551c2
