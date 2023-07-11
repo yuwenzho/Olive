@@ -57,6 +57,25 @@ The workflow in [bert_inc_static_ptq_cpu.json](bert_inc_static_ptq_cpu.json) is 
 #### Dynamic Quantization
 The workflow in [bert_inc_dynamic_ptq_cpu.json](bert_inc_dynamic_ptq_cpu.json) is similar to the above workflow, but specifically uses dynamic quantization instead of static/dynamic quantization.
 
+#### Run with SmoothQuant
+Quantization is a common compression operation to reduce memory and accelerate inference by converting the floating point matrix to an integer matrix. For large language models (LLMs) with gigantic parameters, the systematic outliers make quantification of activations difficult. [SmoothQuant](https://arxiv.org/abs/2211.10438), a training free post-training quantization (PTQ) solution, offline migrates this difficulty from activations to weights with a mathematically equivalent transformation. SmoothQuant method aims to split the quantization difficulty of weight and activation by using a fixed-value $\alpha$ for an entire model. However, as the distributions of activation outliers vary not only across different models but also across different layers within a model, Intel® Neural Compressor hereby propose a method to obtain layer-wise optimal $\alpha$ values with the ability to tune automatically. Please refer to this [link](https://github.com/intel/neural-compressor/blob/master/docs/source/smooth_quant.md) for more details.
+
+User can use SmoothQuant by setting `smooth_quant` in `recipes` as shown below. Refer to [bert_inc_smoothquant_ptq_cpu.json](bert_inc_smoothquant_ptq_cpu.json) for an example of SmoothQuant.
+
+```json
+"passes": {
+    "quantization": {
+        "type": "IncStaticQuantization",
+        "config": {
+            "recipes":{
+                "smooth_quant": true,
+                "smooth_quant_args": {"alpha": 0.5}
+            }
+        }
+    }
+}
+```
+
 ### BERT optimization with QAT Customized Training Loop on CPU
 This workflow performs BERT optimization on CPU with QAT Customized Training Loop. It performs the optimization pipeline:
 - *PyTorch Model -> PyTorch Model after QAT -> Onnx Model -> Transformers Optimized Onnx Model -> ONNX Runtime performance tuning*
