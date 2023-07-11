@@ -75,7 +75,7 @@ _inc_quantization_config = {
         """,
     ),
     "quant_level": PassConfigParam(
-        type_=str,
+        type_=Union[int, str],
         default_value="auto",
         description="""
             Intel® Neural Compressor allows users to choose different tuning processes by specifying
