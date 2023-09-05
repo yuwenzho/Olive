@@ -114,6 +114,13 @@ _inc_quantization_config = {
             accuracy aware tuning.
         """,
     ),
+    "op_type_dict": PassConfigParam(
+        type_=dict,
+        default_value=None,
+        description="""
+            INC quantization tuning constraints on optype-wise for advance user to reduce tuning space.
+        """,
+    ),
 }
 
 _inc_static_dataloader_config = {
@@ -226,10 +233,10 @@ class IncQuantization(Pass):
             "approach": PassConfigParam(
                 type_=str,
                 default_value="static",
-                searchable_values=Categorical(["dynamic", "static"]),
+                searchable_values=Categorical(["dynamic", "static", "weight_only"]),
                 description="""
                 Intel® Neural Compressor Quantization mode. 'dynamic' for dynamic quantization,
-                'static' for static quantization.
+                'static' for static quantization, "weight_only" for INT4 weight-only quantization.
             """,
             )
         }
