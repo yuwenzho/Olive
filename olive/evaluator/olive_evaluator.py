@@ -204,6 +204,7 @@ class OliveEvaluator(ABC):
 
     @staticmethod
     def get_user_config(framework: Framework, data_root: str, metric: Metric):
+        assert metric.user_config, "user_config is not specified in the metric config"
         user_module = UserModuleLoader(metric.user_config.user_script, metric.user_config.script_dir)
 
         post_processing_func = getattr(metric.user_config, "post_processing_func", None)
@@ -426,7 +427,8 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
         data_root = config["data_root"]
         local_rank = config["local_rank"]
         world_size = config["world_size"]
-        inference_settings = config.get("inference_settings", {}) or {}
+        inference_settings = config["inference_settings"]
+        execution_providers = config["providers"]
         metric = Metric.from_json(config["metric"])
 
         import os
@@ -438,9 +440,11 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
 
         local_rank = MPI.COMM_WORLD.Get_rank()
 
-        # TODO: EPs should be selected based on accelerator_spec param passed down from the engine
-        inference_settings["execution_provider"] = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        inference_settings["provider_options"] = [{"device_id": str(local_rank)}, {}]
+        inference_settings["execution_provider"] = execution_providers
+        inference_settings["provider_options"] = [
+            {"device_id": str(local_rank)} if provider == "CUDAExecutionProvider" else {}
+            for provider in execution_providers
+        ]
 
         model = ONNXModel(model_path, inference_settings=inference_settings)
         dataloader, _, post_func = OnnxEvaluator.get_user_config(model.framework, data_root, metric)
@@ -466,7 +470,12 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
         return model_output, targets
 
     def _evaluate_distributed_accuracy(
-        self, model: DistributedOnnxModel, data_root: str, metric: Metric
+        self,
+        model: DistributedOnnxModel,
+        data_root: str,
+        metric: Metric,
+        device: Device,
+        execution_providers: Union[str, List[str]],
     ) -> MetricResult:
         from copy import deepcopy
 
@@ -486,6 +495,8 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
             cfg["local_rank"] = rank
             cfg["model_path"] = model.ranked_model_path(rank)
             cfg["data_root"] = data_root
+            cfg["device"] = device
+            cfg["providers"] = execution_providers
             args.append(cfg)
 
         with MPIPoolExecutor(max_workers=model.ranks) as executor:
@@ -504,7 +515,8 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
         data_root = config["data_root"]
         local_rank = config["local_rank"]
         world_size = config["world_size"]
-        inference_settings = config.get("inference_settings", {}) or {}
+        inference_settings = config["inference_settings"]
+        execution_providers = config["providers"]
         metric = Metric.from_json(config["metric"])
 
         import os
@@ -516,9 +528,11 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
 
         local_rank = MPI.COMM_WORLD.Get_rank()
         warmup_num, repeat_test_num, sleep_num = get_latency_config_from_metric(metric)
-        # TODO: EPs should be selected based on accelerator_spec param passed down from the engine
-        inference_settings["execution_provider"] = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        inference_settings["provider_options"] = [{"device_id": str(local_rank)}, {}]
+        inference_settings["execution_provider"] = execution_providers
+        inference_settings["provider_options"] = [
+            {"device_id": str(local_rank)} if provider == "CUDAExecutionProvider" else {}
+            for provider in execution_providers
+        ]
 
         model = ONNXModel(model_path, inference_settings=inference_settings)
         dataloader, _, _ = OnnxEvaluator.get_user_config(model.framework, data_root, metric)
@@ -550,7 +564,12 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
         return latencies
 
     def _evaluate_distributed_latency(
-        self, model: DistributedOnnxModel, data_root: str, metric: Metric
+        self,
+        model: DistributedOnnxModel,
+        data_root: str,
+        metric: Metric,
+        device,
+        execution_providers: Union[str, List[str]],
     ) -> MetricResult:
         from copy import deepcopy
 
@@ -570,6 +589,8 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
             cfg["local_rank"] = rank
             cfg["model_path"] = model.ranked_model_path(rank)
             cfg["data_root"] = data_root
+            cfg["device"] = device
+            cfg["providers"] = execution_providers
             args.append(cfg)
 
         with MPIPoolExecutor(max_workers=model.ranks) as executor:
@@ -592,7 +613,9 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
         if isinstance(model, ONNXModel):
             return self._evaluate_onnx_accuracy(model, metric, dataloader, post_func, device, execution_providers)
         elif isinstance(model, DistributedOnnxModel):
-            return self._evaluate_distributed_accuracy(model, data_root, metric)
+            if device != Device.GPU:
+                raise ValueError("Distributed inferencing is supported only on GPU")
+            return self._evaluate_distributed_accuracy(model, data_root, metric, device, execution_providers)
         else:
             raise TypeError(f"Cannot evaluate accuracy for model of type: {type(model)}")
 
@@ -609,7 +632,9 @@ class OnnxEvaluator(OliveEvaluator, framework=Framework.ONNX):
         if isinstance(model, ONNXModel):
             return self._evaluate_onnx_latency(model, metric, dataloader, post_func, device, execution_providers)
         elif isinstance(model, DistributedOnnxModel):
-            return self._evaluate_distributed_latency(model, data_root, metric)
+            if device != Device.GPU:
+                raise ValueError("Distributed inferencing is supported only on GPU")
+            return self._evaluate_distributed_latency(model, data_root, metric, device, execution_providers)
         else:
             raise TypeError(f"Cannot evaluate latency for model of type: {type(model)}")
 
@@ -692,25 +717,39 @@ class PyTorchEvaluator(OliveEvaluator, framework=Framework.PYTORCH):
 
         input_data, _ = next(iter(dataloader))
         device = PyTorchEvaluator._device_string_to_torch_device(device)
+        is_cuda = device == Device.GPU
         if device:
             session.to(device)
             input_data = tensor_data_to_device(input_data, device)
+        input_is_dict = isinstance(input_data, dict)
+
+        # warm up
+        for _ in range(warmup_num):
+            session(**input_data) if input_is_dict else session(input_data)
 
         latencies = []
-        if isinstance(input_data, dict):
-            for _ in range(warmup_num):
-                session(**input_data)
+        if not is_cuda:
             for _ in range(repeat_test_num):
                 t = time.perf_counter()
-                session(**input_data)
+                # TODO: do we care about the efficiency of if/else here?
+                # probably won't add much overhead compared to the inference time
+                # also we are doing the same for all models
+                session(**input_data) if input_is_dict else session(input_data)
                 latencies.append(time.perf_counter() - t)
         else:
-            for _ in range(warmup_num):
-                session(input_data)
+            # synchronize before starting the test
+            torch.cuda.synchronize()
+            # cuda events for measuring latency
+            starter = torch.cuda.Event(enable_timing=True)
+            ender = torch.cuda.Event(enable_timing=True)
             for _ in range(repeat_test_num):
-                t = time.perf_counter()
-                session(input_data)
-                latencies.append(time.perf_counter() - t)
+                starter.record()
+                session(**input_data) if input_is_dict else session(input_data)
+                ender.record()
+                # synchronize after forward pass
+                torch.cuda.synchronize()
+                # add time in seconds, originally in milliseconds
+                latencies.append(starter.elapsed_time(ender) * 1e-3)
 
         # move model to cpu
         if device:

@@ -5,6 +5,8 @@
 import torch
 import os
 from datasets import load_dataset
+from transformers import AutoConfig
+
 from olive.constants import Framework
 from torch.utils.data import DataLoader
 import onnxruntime as ort
@@ -12,6 +14,9 @@ from transformers import LlamaConfig, LlamaTokenizer
 from torch.nn.functional import pad
 import numpy as np
 from olive.model import OliveModel
+
+model_id = "openlm-research/open_llama_3b"
+config = AutoConfig.from_pretrained(model_id)
 
 
 class RandomDataLoader:
@@ -26,7 +31,7 @@ class RandomDataLoader:
         return self.create_input_func(self.batch_size, self.torch_dtype, self.model_framework), label
 
 
-def dummy_inputs(batch_size, torch_dtype, model_framework=Framework.PYTORCH, num_hidden_layers=26):
+def dummy_inputs(batch_size, torch_dtype, model_framework=Framework.PYTORCH):
     past_sequence_length = 1
     attention_mask_sequence_length = 1
     sequence_length = 2
@@ -37,13 +42,18 @@ def dummy_inputs(batch_size, torch_dtype, model_framework=Framework.PYTORCH, num
     }
 
     if model_framework == Framework.ONNX:
-        for layer_index in range(num_hidden_layers):
-            inputs[f"past_key_values.{layer_index}.key"] = torch.rand(
-                (batch_size, 32, past_sequence_length, 100), dtype=torch_dtype
-            )
-            inputs[f"past_key_values.{layer_index}.value"] = torch.rand(
-                (batch_size, 32, past_sequence_length, 100), dtype=torch_dtype
-            )
+        rand_kv_tensor = torch.rand(
+            (
+                batch_size,
+                config.num_attention_heads,
+                past_sequence_length,
+                int(config.hidden_size / config.num_attention_heads),
+            ),
+            dtype=torch_dtype,
+        )
+        for layer_index in range(config.num_hidden_layers):
+            inputs[f"past_key_values.{layer_index}.key"] = rand_kv_tensor
+            inputs[f"past_key_values.{layer_index}.value"] = rand_kv_tensor
 
         inputs["use_cache_branch"] = torch.ones((1,), dtype=torch.bool)
 

@@ -6,64 +6,35 @@
 # https://github.com/IST-DASLab/sparsegpt
 # https://arxiv.org/abs/2301.00774
 # -------------------------------------------------------------------------
+import logging
 import math
 
 import torch
 import transformers
 
-# model_type -> name for layers
-layers_map = {
-    "bloom": "transformer.h",
-    "gpt2": "transformer.h",
-    "gpt_neox": "gpt_neox.layers",
-    "llama": "model.layers",
-    "opt": "model.decoder.layers",
-}
+from olive.common.utils import get_attr
+from olive.model.hf_mappings import MODELS_TO_EMBEDDINGS_MAPPING, MODELS_TO_LAYERS_MAPPING
 
-# model_type -> name for embedding, these are the modules before the first layer
-embedding_map = {
-    "bloom": ["transformer.word_embeddings", "transformer.word_embeddings_layernorm"],
-    "gpt2": ["transformer.wte", "transformer.wpe"],
-    "gpt_neox": ["gpt_neox.embed_in"],
-    "llama": ["model.embed_tokens", "model.norm"],
-    "opt": [
-        "model.decoder.embed_tokens",
-        "model.decoder.embed_positions",
-        "model.model.decoder.project_out",
-        "model.model.decoder.project_in",
-    ],
-}
+logger = logging.getLogger(__name__)
+
+# model types supported by SparseGPT
+supported_models = ["bloom", "gpt2", "gpt_neox", "llama", "opt"]
 
 # additional inputs to the layers for each model type
 # all model types are expected to have "input_ids" and "attention_mask"
 additional_inputs = {"bloom": ["alibi"], "gpt_neox": ["position_ids"]}
 
 
-def _get_attr(module, attr):
-    """Get attribute from module.
-
-    :param module: module to get attribute from
-    :param attr: attribute name, can be a string with dot notation
-    :return: attribute
-    """
-    attr = attr.split(".")
-    for a in attr:
-        if hasattr(module, a):
-            module = getattr(module, a)
-        else:
-            return None
-    return module
-
-
 def get_layers(model, model_type):
     """Get the layers from model based on model type."""
-    layers = layers_map[model_type]
-    return _get_attr(model, layers)
+    layers = MODELS_TO_LAYERS_MAPPING[model_type]
+    return get_attr(model, layers)
 
 
 def get_layer_submodules(
     module, submodule_types=[torch.nn.Conv2d, torch.nn.Linear, transformers.Conv1D], layer_name_filter=None, name=""
 ):
+    """Get the submodules of a module based on the submodule types."""
     if type(module) in submodule_types:
         if layer_name_filter and not any([s in name for s in layer_name_filter]):
             # skip this layer
@@ -75,6 +46,24 @@ def get_layer_submodules(
         submodule_name = name + "." + submodule_name if name else submodule_name
         submodules.update(get_layer_submodules(submodule, submodule_types, layer_name_filter, submodule_name))
     return submodules
+
+
+def validate_min_max_layers(min_layer, max_layer, num_layers):
+    """Verify min_layer and max_layer are valid and return the valid range."""
+    min_layer = min_layer or 0
+    if min_layer < 0:
+        # if user specified min_layer < 0, set min_layer to 0
+        logger.warning(f"min_layer ({min_layer}) is less than 0. Setting to 0.")
+        min_layer = 0
+    max_layer = max_layer or num_layers
+    if max_layer > num_layers:
+        # if user specified max_layer > number of layers, set max_layer to number of layers
+        logger.warning(
+            f"max_layer ({max_layer}) is greater than number of layers ({num_layers}). Setting to {num_layers}."
+        )
+        max_layer = num_layers
+        # don't need to worry about min_layer since if min_layer >= max_layer, the range will be empty
+    return min_layer, max_layer
 
 
 @torch.no_grad()
@@ -119,8 +108,8 @@ def catch_layer_inputs(model, model_type, dataloader, device, num_samples=None):
             raise ValueError("Stop forward propagation")
 
     # put all modules until the first layer on the device
-    for name in embedding_map[model_type]:
-        module = _get_attr(model, name)
+    for name in MODELS_TO_EMBEDDINGS_MAPPING[model_type]:
+        module = get_attr(model, name)
         if module:
             module.to(device)
 
@@ -142,8 +131,8 @@ def catch_layer_inputs(model, model_type, dataloader, device, num_samples=None):
     layers[0] = layers[0].module
 
     # put all modules until the first layer back on the CPU
-    for name in embedding_map[model_type]:
-        module = _get_attr(model, name)
+    for name in MODELS_TO_EMBEDDINGS_MAPPING[model_type]:
+        module = get_attr(model, name)
         if module:
             module.to("cpu")
 
