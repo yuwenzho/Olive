@@ -5,17 +5,10 @@
 # --------------------------------------------------------------------------
 set -eoux pipefail
 
-PIPELINE=$1
-ROOT_DIR=$2
-TEST_TYPE=$3
+ROOT_DIR=$1
+TEST_TYPE=$2
 
 echo "Running tests in $TEST_TYPE"
-
-if [[ "$PIPELINE" == "True" ]]; then
-    set +x
-    source olive-venv/bin/activate
-    set -x
-fi
 
 # install pytest
 python -m pip install pytest

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from olive.evaluator.metric import Metric, MetricResult
 from olive.hardware.accelerator import AcceleratorSpec
-from olive.model import OliveModel
+from olive.model import ModelConfig
 from olive.passes.olive_pass import Pass
 from olive.systems.common import SystemType
 
@@ -18,18 +18,19 @@ logger = logging.getLogger(__name__)
 class OliveSystem(ABC):
     system_type: SystemType
 
-    def __init__(self, accelerators: List[str] = None):
+    def __init__(self, accelerators: List[str] = None, olive_managed_env: bool = False):
         self.accelerators = accelerators
+        self.olive_managed_env = olive_managed_env
 
     @abstractmethod
     def run_pass(
         self,
         the_pass: Pass,
-        model: OliveModel,
+        model_config: ModelConfig,
         data_root: str,
         output_model_path: str,
         point: Optional[Dict[str, Any]] = None,
-    ) -> OliveModel:
+    ) -> ModelConfig:
         """
         Run the pass on the model at a specific point in the search space.
         """
@@ -37,9 +38,16 @@ class OliveSystem(ABC):
 
     @abstractmethod
     def evaluate_model(
-        self, model: OliveModel, data_root: str, metrics: List[Metric], accelerator: AcceleratorSpec
+        self, model_config: ModelConfig, data_root: str, metrics: List[Metric], accelerator: AcceleratorSpec
     ) -> MetricResult:
         """
         Evaluate the model
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def remove(self):
+        """
+        Remove the system
         """
         raise NotImplementedError()

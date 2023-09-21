@@ -5,17 +5,9 @@
 # --------------------------------------------------------------------------
 set -eoux pipefail
 
-PIPELINE=$1
-ROOT_DIR=$2
-EXAMPLE_FOLDER=$3
-EXAMPLE_NAME=$4
-
-echo $PIPELINE
-if [[ "$PIPELINE" == "True" ]]; then
-    set +x
-    source olive-venv/bin/activate
-    set -x
-fi
+ROOT_DIR=$1
+EXAMPLE_FOLDER=$2
+EXAMPLE_NAME=$3
 
 # install pytest
 python -m pip install pytest

@@ -4,17 +4,7 @@ REM Licensed under the MIT License.
 REM --------------------------------------------------------------------------
 @echo off
 
-set PIPELINE=%1
-set INSTALL_DEV_MODE=%2
-
-rem Create virtual environment
-if "%PIPELINE%"=="True" (
-    call echo "Creating virtual environment for pipeline"
-    call python -m venv olive-venv || goto :error
-    call olive-venv\\Scripts\\activate.bat || goto :error
-) else (
-    call echo "Using active python environment"
-)
+set INSTALL_DEV_MODE=%1
 
 rem Upgrade pip
 call echo "Upgrading pip"

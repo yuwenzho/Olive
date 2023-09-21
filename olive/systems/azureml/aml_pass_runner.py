@@ -75,7 +75,7 @@ def main(raw_args=None):
 
         # Some passes create temporary files in the same directory as the model
         # original directory for model path is read only, so we need to copy the model to a temp directory
-        input_model_path = input_model_config["config"]["model_path"]
+        input_model_path = input_model_config["config"].get("model_path")
         if input_model_path is not None:
             tmp_dir = tempfile.TemporaryDirectory()
             old_path = Path(input_model_path).resolve()
@@ -105,10 +105,6 @@ def main(raw_args=None):
 
     # save model json
     model_json = output_model.to_json()
-
-    # Replace output model HF config with input model HF config only if the output model HF config is empty
-    if not model_json["config"].get("hf_config", None) and input_model_config["config"].get("hf_config"):
-        model_json["config"]["hf_config"] = input_model_config["config"]["hf_config"]
 
     # Replace local paths with relative paths
     # keep track of the resource names that are relative paths

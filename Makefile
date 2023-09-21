@@ -1,10 +1,11 @@
 WINDOWS                    ?= False
-PIPELINE                   ?= False
 INSTALL_DEV_MODE           ?= False
 EXAMPLE_FOLDER             ?=
 EXAMPLE_NAME               ?=
 INSTALL_EXTRAS             ?=
 VERSION                    ?=
+MODEL_NAME                 ?=
+DEVICE                     ?=
 ifeq ($(WINDOWS), True)
 	CURRENT_DIR             = "$(subst /,\\,${CURDIR})"
 	MKDIR_LOG_CMD           = mkdir logs | exit 0
@@ -12,6 +13,7 @@ ifeq ($(WINDOWS), True)
 	TEST_CMD                = "scripts\\test.bat"
 	TEST_EXAMPLES_CMD       = "scripts\\test_examples.bat"
 	OVERWRITE_VERSION       = "python scripts\\overwrite_version.py --version $(VERSION)"
+	PERF_CHECK_CMD          = "scripts\\run_performance_check.bat"
 else
 	CURRENT_DIR             = ${CURDIR}
 	MKDIR_LOG_CMD           = mkdir -p logs
@@ -19,6 +21,7 @@ else
 	TEST_CMD                = bash scripts/test.sh
 	TEST_EXAMPLES_CMD       = bash scripts/test_examples.sh
 	OVERWRITE_VERSION       = python scripts/overwrite_version.py --version $(VERSION)
+	PERF_CHECK_CMD          = bash scripts/run_performance_check.sh
 endif
 
 .PHONY: all
@@ -34,20 +37,28 @@ overwrite-version:
 
 .PHONY: install-olive
 install-olive:
-	$(INSTALL_OLIVE_CMD) $(PIPELINE) $(INSTALL_DEV_MODE)
+	$(INSTALL_OLIVE_CMD) $(INSTALL_DEV_MODE)
 
 .PHONY: unit_test
 unit_test:
-	$(TEST_CMD) $(PIPELINE) $(CURRENT_DIR) unit_test
+	$(TEST_CMD) $(CURRENT_DIR) unit_test
 
 .PHONY: integ_test
 integ_test:
-	$(TEST_CMD) $(PIPELINE) $(CURRENT_DIR) integ_test
+	$(TEST_CMD) $(CURRENT_DIR) integ_test
+
+.PHONY: multiple_ep
+multiple_ep:
+	$(TEST_CMD) $(CURRENT_DIR) multiple_ep
 
 .PHONY: test-examples
 test-examples: logs/
 test-examples:
-	$(TEST_EXAMPLES_CMD) $(PIPELINE) $(CURRENT_DIR) $(EXAMPLE_FOLDER) $(EXAMPLE_NAME)
+	$(TEST_EXAMPLES_CMD) $(CURRENT_DIR) $(EXAMPLE_FOLDER) $(EXAMPLE_NAME)
+
+.PHONY: performance
+performance:
+	$(PERF_CHECK_CMD) $(CURRENT_DIR) $(MODEL_NAME) $(DEVICE)
 
 .PHONY: clean
 clean:
