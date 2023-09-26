@@ -102,9 +102,13 @@ class PileDataloader:
                                                    "attention_mask": mask[:, :-1].detach().cpu().numpy().astype("int64")})
                     ort_input = {}
                     ort_input["input_ids"] = inp[:, -1].unsqueeze(0).detach().cpu().numpy().astype("int64")
-                    for i in range(int((len(outputs) - 1) / 2)):
-                        ort_input["past_key_values.{}.key".format(i)] = outputs[i*2+1]
-                        ort_input["past_key_values.{}.value".format(i)] = outputs[i*2+2]
+                    # for i in range(int((len(outputs) - 1) / 2)):
+                    #     ort_input["past_key_values.{}.key".format(i)] = outputs[i*2+1]
+                    #     ort_input["past_key_values.{}.value".format(i)] = outputs[i*2+2]
+                    for layer_index in range(config.num_hidden_layers):
+                        ort_input[f"past_key_values.{layer_index}.key"] = outputs[layer_index*2+1]
+                        ort_input[f"past_key_values.{layer_index}.value"] = outputs[layer_index*2+2]
+
                     ort_input["attention_mask"] =  np.zeros([self.batch_size, ort_input["past_key_values.0.key"].shape[2]+1], dtype="int64")
                     yield ort_input, 0
  

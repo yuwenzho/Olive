@@ -1,0 +1,4 @@
+datasets
+sentencepiece
+neural-compressor>=2.3
+intel-extension-for-transformers>=1.2
