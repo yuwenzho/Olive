@@ -21,7 +21,7 @@
                     "user_config":{
                         "user_script": "user_script.py",
                         "evaluate_func": "eval_accuracy",
-                        "batch_size": 1
+                        "batch_size": 64
                     }
                 }
             ]
@@ -56,14 +56,24 @@
             "disable_search": true,
             "config": {
                 "user_script": "user_script.py",
-                "dataloader_func": "create_onnx_dataloader",
                 "approach": "weight_only",
+		"weight_only_config":{
+		    "bits": 4,
+		    "algorithm": "GPTQ"
+		},
+		"dataloader_func": "create_onnx_dataloader",
                 "calibration_sampling_size": [8],
-                "op_type_dict": {".*": {"weight": { "bits": 4, "group_size": 32, "scheme": "sym", "algorithm": "RTN"}}},
                 "save_as_external_data": true,
                 "all_tensors_to_one_file": true
             }
-        }
+        },
+	"merge": {
+            "type": "OptimumMerging",
+	    "config": {
+		"save_as_external_data": true,
+		"all_tensors_to_one_file": true
+	    }
+	}
     },
     "engine": {
         "evaluator": "common_evaluator",
