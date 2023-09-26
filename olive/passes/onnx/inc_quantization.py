@@ -470,7 +470,7 @@ class IncQuantization(Pass):
         
         # check neural-compressor version for weight only quantization
         import neural_compressor
-        assert not (run_config["approach"] == "weight_only" and version.parse(neural_compressor.__version__) < version.parse("2.3.0")), \
+        assert not (config["approach"] == "weight_only" and version.parse(neural_compressor.__version__) < version.parse("2.3.0")), \
         "Require neural-compressor >= 2.3.0 to support weight only quantization."
 
         # start with a copy of the config
