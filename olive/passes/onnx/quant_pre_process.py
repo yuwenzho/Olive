@@ -19,6 +19,8 @@ from onnxruntime.tools.symbolic_shape_infer import SymbolicShapeInference
 
 logger = logging.getLogger(__name__)
 
+# ruff: noqa: N802
+
 
 def quant_pre_process(
     input_model_path: str,
@@ -152,7 +154,7 @@ def quant_pre_process(
 
 @contextmanager
 def TemporaryDirectory(**kwargs):
-    # TODO: this is a workaround for issue https://github.com/microsoft/onnxruntime/issues/17627
+    # TODO(myguo): this is a workaround for issue https://github.com/microsoft/onnxruntime/issues/17627
     # on Windows.
     name = tempfile.mkdtemp(**kwargs)
     try:

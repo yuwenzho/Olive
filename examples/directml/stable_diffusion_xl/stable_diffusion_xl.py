@@ -253,7 +253,7 @@ def optimize(
     print("Download stable diffusion PyTorch pipeline...")
     pipeline = DiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float32)
 
-    model_info = dict()
+    model_info = {}
 
     submodel_names = ["vae_encoder", "vae_decoder", "unet", "text_encoder_2"]
 
@@ -264,14 +264,14 @@ def optimize(
         print(f"\nOptimizing {submodel_name}")
 
         olive_config = None
-        with open(script_dir / f"config_{submodel_name}.json", "r") as fin:
+        with (script_dir / f"config_{submodel_name}.json").open() as fin:
             olive_config = json.load(fin)
 
-        # TODO: Remove this once we figure out which nodes are causing the black screen
+        # TODO(PatriceVignola): Remove this once we figure out which nodes are causing the black screen
         if is_refiner_model and submodel_name == "vae_encoder":
             olive_config["passes"]["optimize"]["config"]["float16"] = False
 
-        # TODO: Remove this once we figure out which nodes are causing the black screen
+        # TODO(PatriceVignola): Remove this once we figure out which nodes are causing the black screen
         if submodel_name == "vae_decoder":
             olive_config["passes"]["optimize"]["config"]["float16"] = False
 
@@ -286,7 +286,7 @@ def optimize(
 
             conversion_footprint = None
             optimizer_footprint = None
-            for _, footprint in footprints.items():
+            for footprint in footprints.values():
                 if footprint["from_pass"] == "OnnxConversion":
                     conversion_footprint = footprint
                 elif footprint["from_pass"] == "OrtTransformersOptimization":
@@ -434,7 +434,7 @@ if __name__ == "__main__":
     if args.model_id not in list(model_to_config.keys()):
         print(
             f"WARNING: {args.model_id} is not an officially supported model for this example and may not work as "
-            + "expected."
+            "expected."
         )
 
     if version.parse(ort.__version__) < version.parse("1.15.0"):
@@ -465,7 +465,7 @@ if __name__ == "__main__":
         exit(1)
 
     if args.optimize or not optimized_model_dir.exists():
-        # TODO: clean up warning filter (mostly during conversion from torch to ONNX)
+        # TODO(PatriceVignola): clean up warning filter (mostly during conversion from torch to ONNX)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             optimize(args.model_id, is_refiner_model, unoptimized_model_dir, optimized_model_dir)

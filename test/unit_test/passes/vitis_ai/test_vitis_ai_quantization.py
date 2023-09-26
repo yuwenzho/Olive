@@ -2,7 +2,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-import os
 from pathlib import Path
 from test.unit_test.utils import get_onnx_model
 
@@ -38,20 +37,24 @@ def dummy_calibration_reader(data_dir=None, batch_size=1, *args, **kwargs):
 
 
 @pytest.mark.skipif(
-    version.parse(OrtVersion) >= version.parse("1.16.0"),
+    version.parse(OrtVersion) == version.parse("1.16.0"),
     reason="VitisAIQuantization is not supported in ORT 1.16.0 with TensorsData",
 )
 def test_vitis_ai_quantization_pass(tmp_path):
     # setup
     input_model = get_onnx_model()
-    dummy_user_script = str(tmp_path / "dummy_user_script.py")
-    dummy_data = str(tmp_path / "dummy_data")
-    with open(dummy_user_script, "w") as f:
+    dummy_user_script = tmp_path / "dummy_user_script.py"
+    dummy_data: Path = tmp_path / "dummy_data"
+    with dummy_user_script.open("w") as f:
         f.write(" ")
-    if not os.path.exists(dummy_data):
-        os.mkdir(dummy_data)
+    if not dummy_data.exists():
+        dummy_data.mkdir()
 
-    config = {"user_script": dummy_user_script, "data_dir": dummy_data, "dataloader_func": dummy_calibration_reader}
+    config = {
+        "user_script": str(dummy_user_script),
+        "data_dir": str(dummy_data),
+        "dataloader_func": dummy_calibration_reader,
+    }
     output_folder = str(tmp_path / "vitis_ai_quantized")
 
     # create VitisAIQuantization pass

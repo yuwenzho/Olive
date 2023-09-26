@@ -16,6 +16,7 @@ from test.integ_test.evaluator.local_eval.utils import (
     openvino_post_process,
     post_process,
 )
+from typing import ClassVar, List
 
 import pytest
 
@@ -32,7 +33,7 @@ class TestLocalEvaluation:
         yield
         delete_directories()
 
-    EVALUATION_TEST_CASE = [
+    EVALUATION_TEST_CASE: ClassVar[List] = [
         ("PyTorchModel", get_pytorch_model(), get_accuracy_metric(post_process), 0.99),
         ("PyTorchModel", get_pytorch_model(), get_latency_metric(), 0.001),
         ("PyTorchModel", get_huggingface_model(), get_hf_accuracy_metric(), 0.1),
@@ -47,7 +48,7 @@ class TestLocalEvaluation:
         "type,model_config,metric,expected_res",
         EVALUATION_TEST_CASE,
     )
-    def test_evaluate_model(self, type, model_config, metric, expected_res):
+    def test_evaluate_model(self, type, model_config, metric, expected_res):  # noqa: A002
         model_conf = ModelConfig.parse_obj({"type": type, "config": model_config})
         actual_res = LocalSystem().evaluate_model(model_conf, None, [metric], DEFAULT_CPU_ACCELERATOR)
         for sub_type in metric.sub_types:

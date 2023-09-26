@@ -45,8 +45,7 @@ def create_evaluate_command(
         f"--accelerator_type {accelerator.accelerator_type}",
         f"--execution_provider {accelerator.execution_provider}",
     ]
-    cmd_line = f"python {eval_script_path} {' '.join(parameters)}"
-    return cmd_line
+    return f"python {eval_script_path} {' '.join(parameters)}"
 
 
 def create_run_command(run_params: dict):
@@ -114,7 +113,7 @@ def create_eval_script_mount(container_root_path: Path):
 def create_dev_mount(tempdir: Path, container_root_path: Path):
     logger.warning(
         "Dev mode is only enabled for CI pipeline! "
-        + "It will overwrite the Olive package in docker container with latest code."
+        "It will overwrite the Olive package in docker container with latest code."
     )
     tempdir = Path(tempdir)
 

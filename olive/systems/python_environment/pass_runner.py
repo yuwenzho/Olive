@@ -13,6 +13,8 @@ from olive.passes.olive_pass import FullPassConfig
 ort_inference_utils_parent = Path(__file__).resolve().parent.parent.parent / "common"
 sys.path.append(str(ort_inference_utils_parent))
 
+# ruff: noqa: PTH123
+
 
 def get_args(raw_args):
     parser = argparse.ArgumentParser(description="Onnx model inference")
@@ -34,14 +36,14 @@ def main(raw_args=None):
     args.output_model_path = Path(args.output_model_path)
     args.output_model_json_path = Path(args.output_model_json_path)
 
-    with open(args.model_json_path, "r") as f:
+    with open(args.model_json_path) as f:
         model_json = json.load(f)
-    with open(args.pass_json_path, "r") as f:
+    with open(args.pass_json_path) as f:
         pass_json = json.load(f)
 
     if args.point_json_path:
         args.point_json_path = Path(args.point_json_path)
-        with open(args.point_json_path, "r") as f:
+        with open(args.point_json_path) as f:
             point = json.load(f)
     else:
         point = None

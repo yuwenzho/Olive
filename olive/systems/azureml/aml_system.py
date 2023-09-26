@@ -102,9 +102,9 @@ class AzureMLSystem(OliveSystem):
             return Environment(image=docker_config.base_image, conda_file=docker_config.conda_file_path)
         raise ValueError("Please specify DockerConfig.")
 
-    def _assert_not_none(self, object):
-        if object is None:
-            raise ValueError(f"{object.__class__.__name__} is missing in the inputs!")
+    def _assert_not_none(self, obj):
+        if obj is None:
+            raise ValueError(f"{obj.__class__.__name__} is missing in the inputs!")
 
     def run_pass(
         self,
@@ -114,9 +114,7 @@ class AzureMLSystem(OliveSystem):
         output_model_path: str,
         point: Optional[Dict[str, Any]] = None,
     ) -> ModelConfig:
-        """
-        Run the pass on the model at a specific point in the search space.
-        """
+        """Run the pass on the model at a specific point in the search space."""
         ml_client = self.azureml_client_config.create_client()
         point = point or {}
         config = the_pass.config_at_search_point(point)
@@ -129,32 +127,15 @@ class AzureMLSystem(OliveSystem):
             )
 
             # submit job
-            logger.debug("Submitting pipeline")
-            job = retry_func(
-                ml_client.jobs.create_or_update,
-                [pipeline_job],
-                {"experiment_name": "olive-pass", "tags": {"Pass": pass_config["type"]}},
-                max_tries=self.azureml_client_config.max_operation_retries,
-                delay=self.azureml_client_config.operation_retry_interval,
-                exceptions=HttpResponseError,
+            named_outputs_dir = self._run_job(
+                ml_client,
+                pipeline_job,
+                "olive-pass",
+                tempdir,
+                tags={"Pass": pass_config["type"]},
+                output_name="pipeline_output",
             )
-            logger.info(f"Pipeline submitted. Job name: {job.name}. Job link: {job.studio_url}")
-            ml_client.jobs.stream(job.name)
-
-            # get output
-            output_dir = Path(tempdir) / "pipeline_output"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"Downloading pipeline output to {output_dir}")
-            retry_func(
-                ml_client.jobs.download,
-                [job.name],
-                {"output_name": "pipeline_output", "download_path": output_dir},
-                max_tries=self.azureml_client_config.max_operation_retries,
-                delay=self.azureml_client_config.operation_retry_interval,
-                exceptions=ServiceResponseError,
-            )
-
-            pipeline_output_path = output_dir / "named-outputs" / "pipeline_output"
+            pipeline_output_path = named_outputs_dir / "pipeline_output"
 
             return self._load_model(model_config, output_model_path, pipeline_output_path)
 
@@ -246,7 +227,7 @@ class AzureMLSystem(OliveSystem):
 
     def _create_pass_inputs(self, pass_path_params: List[Tuple[str, bool, ParamCategory]]):
         inputs = {"pass_config": Input(type=AssetTypes.URI_FILE)}
-        for param, required, category in pass_path_params:
+        for param, required, _ in pass_path_params:
             # aml supports uploading file/folder even though this is typed as URI_FOLDER
             inputs[f"pass_{param}"] = Input(type=AssetTypes.URI_FOLDER, optional=not required)
 
@@ -285,18 +266,23 @@ class AzureMLSystem(OliveSystem):
         resources,
         instance_count,
         inputs,
+        outputs,
         script_name,
     ):
+        # create arguments for inputs and outputs
         parameters = []
-        for param, input in inputs.items():
-            if isinstance(input, Input) and input.optional:
+        inputs = inputs or {}
+        for param, job_input in inputs.items():
+            if isinstance(job_input, Input) and job_input.optional:
                 parameters.append(f"$[[--{param} ${{{{inputs.{param}}}}}]]")
             else:
                 parameters.append(f"--{param} ${{{{inputs.{param}}}}}")
-        parameters.append("--pipeline_output ${{outputs.pipeline_output}}")
+        outputs = outputs or {}
+        for param in outputs:
+            parameters.append(f"--{param} ${{{{outputs.{param}}}}}")
 
         cmd_line = f"python {script_name} {' '.join(parameters)}"
-        component = command(
+        return command(
             name=name,
             display_name=display_name,
             description=description,
@@ -305,12 +291,10 @@ class AzureMLSystem(OliveSystem):
             environment=aml_environment,
             code=str(code),
             inputs=inputs,
-            outputs=dict(pipeline_output=Output(type=AssetTypes.URI_FOLDER)),
+            outputs=outputs,
             instance_count=instance_count,
             compute=compute,
         )
-
-        return component
 
     def _create_pipeline_for_pass(
         self,
@@ -332,7 +316,7 @@ class AzureMLSystem(OliveSystem):
         if self.is_dev:
             logger.warning(
                 "Dev mode is only enabled for CI pipeline! "
-                + "It will overwrite the Olive package in AML computer with latest code."
+                "It will overwrite the Olive package in AML computer with latest code."
             )
             project_folder = cur_dir.parent.parent
             shutil.copytree(project_folder, code_root / "olive", ignore=shutil.ignore_patterns("__pycache__"))
@@ -348,6 +332,8 @@ class AzureMLSystem(OliveSystem):
             **self._create_pass_inputs(pass_path_params),
             **accelerator_info,
         }
+        # prepare outputs
+        outputs = {"pipeline_output": Output(type=AssetTypes.URI_FOLDER)}
 
         # pass type
         pass_type = pass_config["type"]
@@ -363,6 +349,7 @@ class AzureMLSystem(OliveSystem):
             resources=self.resources,
             instance_count=self.instance_count,
             inputs=inputs,
+            outputs=outputs,
             script_name=script_name,
         )
 
@@ -383,9 +370,51 @@ class AzureMLSystem(OliveSystem):
             outputs["pipeline_output"] = component.outputs.pipeline_output
             return outputs
 
-        pipeline_job = pass_runner_pipeline()
+        return pass_runner_pipeline()
 
-        return pipeline_job
+    def _run_job(
+        self,
+        ml_client,
+        pipeline_job,
+        experiment_name: str,
+        tmp_dir: Union[str, Path],
+        tags: Dict = None,
+        output_name: str = None,
+    ) -> Path:
+        """Run a pipeline job and return the path to named-outputs."""
+        # submit job
+        logger.debug("Submitting pipeline")
+        job = retry_func(
+            ml_client.jobs.create_or_update,
+            [pipeline_job],
+            {"experiment_name": experiment_name, "tags": tags},
+            max_tries=self.azureml_client_config.max_operation_retries,
+            delay=self.azureml_client_config.operation_retry_interval,
+            exceptions=HttpResponseError,
+        )
+        logger.info(f"Pipeline submitted. Job name: {job.name}. Job link: {job.studio_url}")
+        ml_client.jobs.stream(job.name)
+
+        # get output
+        output_dir = Path(tmp_dir) / "pipeline_output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        # whether to download a single output or all outputs
+        output_arg = {"download_path": output_dir}
+        if output_name:
+            output_arg["output_name"] = output_name
+        else:
+            output_arg["all"] = True
+        logger.debug(f"Downloading pipeline output to {output_dir}")
+        retry_func(
+            ml_client.jobs.download,
+            [job.name],
+            output_arg,
+            max_tries=self.azureml_client_config.max_operation_retries,
+            delay=self.azureml_client_config.operation_retry_interval,
+            exceptions=ServiceResponseError,
+        )
+
+        return output_dir / "named-outputs"
 
     def _load_model(self, input_model_config: ModelConfig, output_model_path, pipeline_output_path):
         model_json_path = pipeline_output_path / "output_model_config.json"
@@ -481,33 +510,11 @@ class AzureMLSystem(OliveSystem):
             pipeline_job = self._create_pipeline_for_evaluation(data_root, tempdir, model_config, metrics, accelerator)
 
             # submit job
-            logger.debug("Submitting pipeline")
-            job = retry_func(
-                ml_client.jobs.create_or_update,
-                [pipeline_job],
-                {"experiment_name": "olive-evaluation"},
-                max_tries=self.azureml_client_config.max_operation_retries,
-                delay=self.azureml_client_config.operation_retry_interval,
-                exceptions=HttpResponseError,
-            )
-            logger.info(f"Pipeline submitted. Job name: {job.name}. Job link: {job.studio_url}")
-            ml_client.jobs.stream(job.name)
-
-            # get output
-            output_dir = Path(tempdir) / "pipeline_output"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            retry_func(
-                ml_client.jobs.download,
-                [job.name],
-                {"download_path": output_dir, "all": True},
-                max_tries=self.azureml_client_config.max_operation_retries,
-                delay=self.azureml_client_config.operation_retry_interval,
-                exceptions=ServiceResponseError,
-            )
+            named_outputs_dir = self._run_job(ml_client, pipeline_job, "olive-evaluation", tempdir)
 
             metric_results = {}
             for metric in metrics:
-                metric_json = output_dir / "named-outputs" / metric.name / "metric_result.json"
+                metric_json = named_outputs_dir / metric.name / "metric_result.json"
                 if metric_json.is_file():
                     with metric_json.open() as f:
                         metric_results.update(json.load(f))
@@ -577,7 +584,7 @@ class AzureMLSystem(OliveSystem):
         if self.is_dev:
             logger.warning(
                 "Dev mode is only enabled for CI pipeline! "
-                + "It will overwrite the Olive package in AML computer with latest code."
+                "It will overwrite the Olive package in AML computer with latest code."
             )
             project_folder = cur_dir.parent.parent
             shutil.copytree(project_folder, code_root / "olive", ignore=shutil.ignore_patterns("__pycache__"))
@@ -586,8 +593,10 @@ class AzureMLSystem(OliveSystem):
         inputs = {
             **self._create_model_inputs(model_resource_paths),
             **self._create_metric_inputs(),
-            **{"accelerator_config": Input(type=AssetTypes.URI_FILE)},
+            "accelerator_config": Input(type=AssetTypes.URI_FILE),
         }
+        # prepare outputs
+        outputs = {"pipeline_output": Output(type=AssetTypes.URI_FOLDER)}
 
         # metric type
         metric_type = metric_json["type"]
@@ -606,6 +615,7 @@ class AzureMLSystem(OliveSystem):
             resources=self.resources,
             instance_count=self.instance_count,
             inputs=inputs,
+            outputs=outputs,
             script_name=script_name,
         )
 
@@ -613,13 +623,11 @@ class AzureMLSystem(OliveSystem):
         args = {
             **model_args,
             **self._create_metric_args(data_root, metric_json, tmp_dir),
-            **{"accelerator_config": Input(type=AssetTypes.URI_FILE, path=accelerator_config_path)},
+            "accelerator_config": Input(type=AssetTypes.URI_FILE, path=accelerator_config_path),
         }
 
         # metric component
-        metric_component = cmd(**args)
-
-        return metric_component
+        return cmd(**args)
 
     def remove(self):
         logger.info("AzureML system does not need system removal")

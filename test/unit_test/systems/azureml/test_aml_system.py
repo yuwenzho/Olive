@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from test.unit_test.utils import ONNX_MODEL_PATH, get_accuracy_metric, get_latency_metric, get_pytorch_model_config
+from typing import ClassVar, List
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -15,7 +16,7 @@ from azure.ai.ml import Input, Output
 from azure.ai.ml.constants import AssetTypes
 
 from olive.azureml.azureml_client import AzureMLClientConfig
-from olive.evaluator.metric import AccuracySubType, LatencySubType, MetricResult
+from olive.evaluator.metric import AccuracySubType, LatencySubType, Metric, MetricResult
 from olive.hardware import DEFAULT_CPU_ACCELERATOR
 from olive.model import ONNXModel
 from olive.passes.olive_pass import create_pass_from_dict
@@ -38,7 +39,7 @@ class TestAzureMLSystem:
         mock_azureml_client_config = Mock(spec=AzureMLClientConfig)
         self.system = AzureMLSystem(mock_azureml_client_config, "dummy", docker_config)
 
-    METRIC_TEST_CASE = [
+    METRIC_TEST_CASE: ClassVar[List[Metric]] = [
         (get_accuracy_metric(AccuracySubType.ACCURACY_SCORE)),
         (get_accuracy_metric(AccuracySubType.F1_SCORE)),
         (get_accuracy_metric(AccuracySubType.PRECISION)),
@@ -99,7 +100,7 @@ class TestAzureMLSystem:
         pipeline_output_path.mkdir(parents=True, exist_ok=True)
         # create dummy output model
         downloaded_output_model_path = pipeline_output_path / "output_model.onnx"
-        with open(downloaded_output_model_path, "w") as f:
+        with downloaded_output_model_path.open("w") as f:
             f.write("dummy")
         # create dummy output config
         dummy_config = {
@@ -112,7 +113,7 @@ class TestAzureMLSystem:
             "resource_names": ["model_path"],
         }
         dummy_config_path = pipeline_output_path / "output_model_config.json"
-        with open(dummy_config_path, "w") as f:
+        with dummy_config_path.open("w") as f:
             json.dump(dummy_config, f, indent=4)
 
         onnx_conversion_config = {}
@@ -122,7 +123,7 @@ class TestAzureMLSystem:
         output_model_path.mkdir(parents=True, exist_ok=True)
         # create dummy output model so that ONNXModel can be created with the same path
         expected_model_path = output_model_path / "model.onnx"
-        with open(expected_model_path, "w") as f:
+        with expected_model_path.open("w") as f:
             f.write("dummy")
         output_folder = tmp_dir_path
 
@@ -210,9 +211,8 @@ class TestAzureMLSystem:
         code = "code"
         compute = "compute"
         instance_count = 1
-        inputs = {
-            "dummy_input": Input(type=AssetTypes.URI_FILE),
-        }
+        inputs = {"dummy_input": Input(type=AssetTypes.URI_FILE)}
+        outputs = {"dummy_output": Output(type=AssetTypes.URI_FILE)}
         script_name = "aml_evaluation_runner.py"
         resources = {
             "instance_type": "instance_type",
@@ -242,6 +242,7 @@ class TestAzureMLSystem:
             resources,
             instance_count,
             inputs,
+            outputs,
             script_name,
         )
 
@@ -251,12 +252,12 @@ class TestAzureMLSystem:
             name=name,
             display_name=display_name,
             description=description,
-            command=self.create_command(inputs),
+            command=self.create_command(script_name, inputs, outputs),
             resources=resources,
             environment=aml_environment,
             code=code,
             inputs=inputs,
-            outputs=dict(pipeline_output=Output(type=AssetTypes.URI_FOLDER)),
+            outputs=outputs,
             instance_count=1,
             compute=compute,
         )
@@ -332,6 +333,7 @@ class TestAzureMLSystem:
             **metric_inputs,
             "accelerator_config": Input(type=AssetTypes.URI_FILE),
         }
+        outputs = {"pipeline_output": Output(type=AssetTypes.URI_FOLDER)}
         expected_res = MagicMock()
         mock_command.return_value.return_value = expected_res
 
@@ -361,12 +363,12 @@ class TestAzureMLSystem:
             name=metric_type,
             display_name=metric_type,
             description=f"Run olive {metric_type} evaluation",
-            command=self.create_command(inputs),
+            command=self.create_command("aml_evaluation_runner.py", inputs, outputs),
             resources=None,
             environment=self.system.environment,
             code=str(code_path),
             inputs=inputs,
-            outputs=dict(pipeline_output=Output(type=AssetTypes.URI_FOLDER)),
+            outputs={"pipeline_output": Output(type=AssetTypes.URI_FOLDER)},
             instance_count=1,
             compute=self.system.compute,
         )
@@ -375,15 +377,17 @@ class TestAzureMLSystem:
         if os.path.exists(code_path):
             os.rmdir(code_path)
 
-    def create_command(self, inputs):
-        script_name = "aml_evaluation_runner.py"
+    def create_command(self, script_name, inputs, outputs):
         parameters = []
-        for param, input in inputs.items():
-            if input.optional:
+        inputs = inputs or {}
+        for param, input_param in inputs.items():
+            if input_param.optional:
                 parameters.append(f"$[[--{param} ${{{{inputs.{param}}}}}]]")
             else:
                 parameters.append(f"--{param} ${{{{inputs.{param}}}}}")
-        parameters.append("--pipeline_output ${{outputs.pipeline_output}}")
+        outputs = outputs or {}
+        for param in outputs:
+            parameters.append(f"--{param} ${{{{outputs.{param}}}}}")
 
         return f"python {script_name} {' '.join(parameters)}"
 
@@ -434,7 +438,7 @@ class TestAzureMLSystem:
             "resource_names": [],
         }
 
-        with open(tmp_path / "model_config.json", "w") as f:
+        with (tmp_path / "model_config.json").open("w") as f:
             json.dump(model_config, f)
 
         # create model.pt
@@ -521,12 +525,12 @@ class TestAzureMLSystem:
             },
         }
 
-        with open(tmp_path / "metrics_config.json", "w") as f:
+        with (tmp_path / "metrics_config.json").open("w") as f:
             json.dump(metrics_config, f)
 
         # create accelerator_config.json
         accelerator_config = {"accelerator_type": "cpu", "execution_provider": "CPUExecutionProvider"}
-        with open(tmp_path / "accelerator_config.json", "w") as f:
+        with (tmp_path / "accelerator_config.json").open("w") as f:
             json.dump(accelerator_config, f)
 
         ouptut_dir = tmp_path / "pipeline_output"
@@ -600,10 +604,10 @@ class TestAzureMLSystem:
             "type": "OnnxConversion",
         }
 
-        with open(tmp_path / "model_config.json", "w") as f:
+        with (tmp_path / "model_config.json").open("w") as f:
             json.dump(model_config, f)
 
-        with open(tmp_path / "pass_config.json", "w") as f:
+        with (tmp_path / "pass_config.json").open("w") as f:
             json.dump(pass_config, f)
 
         ouptut_dir = tmp_path / "pipeline_output"
