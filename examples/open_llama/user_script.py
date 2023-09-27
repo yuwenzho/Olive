@@ -7,6 +7,7 @@ import os
 import random
 from datasets import load_dataset
 from transformers import AutoConfig
+from pathlib import Path
 
 from olive.constants import Framework
 from torch.utils.data import DataLoader
@@ -80,7 +81,11 @@ class PileDataloader:
         self.dataset.set_format(type="torch", columns=["input_ids", "attention_mask"])
         self.sess = None
         if not model_path.endswith("decoder_model.onnx"):
-            self.sess = ort.InferenceSession(os.path.join(os.path.dirname(model_path), "decoder_model.onnx"))
+            for item in Path(model_path).parent.parent.glob("**/decoder_model.onnx"):
+                decoder_model_path = item.resolve()
+                break
+            self.sess = ort.InferenceSession(decoder_model_path)
+
 
     def __iter__(self):
         try:
