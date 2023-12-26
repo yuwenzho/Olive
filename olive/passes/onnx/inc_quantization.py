@@ -352,6 +352,8 @@ class IncQuantization(Pass):
                     "save_as_external_data": False,
                     "all_tensors_to_one_file": True,
                     "external_data_name": None,
+                    "size_threshold": 1024,
+                    "convert_attribute": False,
                 },
             )
 
