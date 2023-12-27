@@ -4,8 +4,7 @@
         "config": {
             "hf_config": {
                 "model_name": "openlm-research/open_llama_3b",
-                "model_class": "LlamaForCausalLM",
-                "components": [{ "name": "decoder_model" }, { "name": "decoder_with_past_model" }]
+                "task": "text-generation-with-past"
             }
         }
     },

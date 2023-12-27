@@ -135,7 +135,7 @@ def eval_accuracy(model: OliveModelHandler, data_dir, batch_size, device, execut
     if model.framework == Framework.PYTORCH:
         results = evaluate(
             model="hf-causal",
-            model_args="pretrained=" + model.model_path + ",tokenizer=" + model_id + ",dtype=float32",
+            model_args="pretrained=" + model_id + ",tokenizer=" + model_id + ",dtype=float32",
             batch_size=batch_size,
             tasks=["lambada_openai"],
         )
